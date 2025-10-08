@@ -10,6 +10,7 @@ from tables_ops import (
 )
 from extract_helpers import extract_filename, infer_customer_type
 
+PROGRESS_EVERY = 100
 
 def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -36,6 +37,7 @@ def copy_student_if_needed(conn, student_id: Optional[int], student_cols: List[s
         logging.info(f"[dry-run] Would copy student_data_old id={student_id} -> student_taas")
         return True
     insert_from_old_by_id(conn, 'student_data_old', 'student_taas', student_cols, student_id)
+    logging.info(f"Copied student_data_old id={student_id} -> student_taas")
     return True
 
 
@@ -67,6 +69,7 @@ def copy_course_and_related(
         else:
             insert_from_old_by_id(conn, 'course_old', 'course_taas', course_cols, course_id)
             course_copied = True
+            logging.info(f"Copied course_old id={course_id} -> course_taas")
 
     if customer_type and not dry_run:
         with conn.cursor() as cur:
@@ -74,6 +77,7 @@ def copy_course_and_related(
                 "UPDATE public.course_taas SET customer_type = %s WHERE id = %s",
                 (customer_type, course_id),
             )
+            logging.info(f"Set course_taas.id={course_id} customer_type={customer_type}")
 
     classes = find_classes_by_course_id(conn, course_id)
     classes_copied = 0
@@ -86,6 +90,7 @@ def copy_course_and_related(
             else:
                 insert_from_old_by_id(conn, 'class_old', 'class_taas', class_cols, cls_id)
                 classes_copied += 1
+                logging.info(f"Copied class_old id={cls_id} -> class_taas")
 
     student_copied = 0
     if copy_student_if_needed(conn, student_id, student_cols, dry_run=dry_run):
@@ -108,6 +113,7 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
     copied_classes = 0
     copied_students = 0
 
+    logging.info(f"Reading input file: {input_path} (dry_run={dry_run})")
     with open(input_path, 'r', encoding='utf-8', errors='replace') as f:
         for line in f:
             s = line.strip()
@@ -144,6 +150,11 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
                     copied_courses += 1
                 copied_classes += classes_c
                 copied_students += student_c
+            if total_paths % PROGRESS_EVERY == 0:
+                logging.info(
+                    "Progress: paths=%s, matches=%s, courses=%s, classes=%s, students=%s",
+                    total_paths, total_matches, copied_courses, copied_classes, copied_students,
+                )
 
     return {
         'paths_processed': total_paths,

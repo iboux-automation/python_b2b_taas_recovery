@@ -27,6 +27,13 @@ def main():
     if not os.path.exists(args.input):
         logging.warning(f"Input file not found: {args.input}")
 
+    logging.info(
+        "Starting run with input=%s dry_run=%s verbose=%s",
+        args.input,
+        args.dry_run,
+        args.verbose,
+    )
+
     conn = get_conn()
     try:
         summary = orchestrate(conn, args.input, dry_run=args.dry_run)
