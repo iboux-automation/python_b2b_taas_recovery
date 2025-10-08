@@ -3,6 +3,7 @@ import argparse
 import logging
 import os
 
+from dotenv import load_dotenv
 from db_conn import get_conn
 from logic_copy import orchestrate
 
@@ -13,8 +14,10 @@ def setup_logging(verbose: bool = False) -> None:
 
 
 def main():
+    # Load environment variables from .env if present (local dev)
+    load_dotenv()
     parser = argparse.ArgumentParser(description='Copy *_old tables to *_taas based on b2b paths match by spreadsheet_name')
-    parser.add_argument('--input', default='iboux-system-be/python_b2b_recovery/b2b_paths/b2b_paths.cleaned.csv', help='Input file with one path per line')
+    parser.add_argument('--input', default='b2b_paths/b2b_paths.cleaned.csv', help='Input file with one path per line')
     parser.add_argument('--dry-run', action='store_true', help='Do not write to DB, only log actions')
     parser.add_argument('--verbose', action='store_true', help='Verbose logging')
     args = parser.parse_args()
@@ -37,4 +40,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

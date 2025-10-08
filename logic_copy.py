@@ -29,13 +29,13 @@ def find_classes_by_course_id(conn, course_id) -> List[dict]:
 def copy_student_if_needed(conn, student_id: Optional[int], student_cols: List[str], dry_run: bool = False) -> bool:
     if student_id is None:
         return False
-    ensure_clone_table(conn, 'student_old', 'student_taas')
+    ensure_clone_table(conn, 'student_data_old', 'student_taas')
     if record_exists_by_id(conn, 'student_taas', student_id):
         return False
     if dry_run:
-        logging.info(f"[dry-run] Would copy student_old id={student_id} -> student_taas")
+        logging.info(f"[dry-run] Would copy student_data_old id={student_id} -> student_taas")
         return True
-    insert_from_old_by_id(conn, 'student_old', 'student_taas', student_cols, student_id)
+    insert_from_old_by_id(conn, 'student_data_old', 'student_taas', student_cols, student_id)
     return True
 
 
@@ -95,7 +95,7 @@ def copy_course_and_related(
 def orchestrate(conn, input_path: str, dry_run: bool = False):
     course_cols = fetch_table_columns(conn, 'course_old')
     class_cols = fetch_table_columns(conn, 'class_old')
-    student_cols = fetch_table_columns(conn, 'student_old')
+    student_cols = fetch_table_columns(conn, 'student_data_old')
 
     total_paths = 0
     total_matches = 0

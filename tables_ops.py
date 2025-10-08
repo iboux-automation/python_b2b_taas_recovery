@@ -1,22 +1,28 @@
 from typing import List
+from psycopg2 import sql
 
 
 def ensure_clone_table(conn, old_table: str, new_table: str) -> None:
     with conn.cursor() as cur:
+        # Check if the target table exists
         cur.execute(
             """
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.tables
-                    WHERE table_schema = 'public' AND table_name = %s
-                ) THEN
-                    EXECUTE format('CREATE TABLE public.%I (LIKE public.%I INCLUDING IDENTITY INCLUDING DEFAULTS)', %s, %s);
-                END IF;
-            END$$;
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = %s
             """,
-            (new_table, new_table, old_table),
+            (new_table,),
         )
+        exists = cur.fetchone() is not None
+        if not exists:
+            # Create table by cloning structure from the old table
+            cur.execute(
+                sql.SQL(
+                    "CREATE TABLE public.{new} (LIKE public.{old} INCLUDING IDENTITY INCLUDING DEFAULTS)"
+                ).format(
+                    new=sql.Identifier(new_table),
+                    old=sql.Identifier(old_table),
+                )
+            )
     conn.commit()
 
 
@@ -48,4 +54,3 @@ def insert_from_old_by_id(conn, old_table: str, new_table: str, columns: List[st
             f"INSERT INTO public.{new_table} ({cols_csv}) SELECT {cols_csv} FROM public.{old_table} WHERE id = %s",
             (id_value,),
         )
-
