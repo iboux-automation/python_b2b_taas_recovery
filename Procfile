@@ -1,1 +1,1 @@
-worker: python -u run_taas_copy.py
+worker: python -u run_taas_copy.py --dry-run --verbose
