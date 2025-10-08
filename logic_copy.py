@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 import logging
+import unicodedata
 import psycopg2.extras
 
 from tables_ops import (
@@ -12,12 +13,44 @@ from extract_helpers import extract_filename, infer_customer_type
 
 PROGRESS_EVERY = 100
 
+# Cache for checking if the DB has the unaccent extension available
+_HAS_UNACCENT: Optional[bool] = None
+
+
+def _has_unaccent(conn) -> bool:
+    global _HAS_UNACCENT
+    if _HAS_UNACCENT is not None:
+        return _HAS_UNACCENT
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname='unaccent')")
+            _HAS_UNACCENT = bool(cur.fetchone()[0])
+    except Exception:
+        _HAS_UNACCENT = False
+    if _HAS_UNACCENT:
+        logging.info("PostgreSQL extension 'unaccent' detected; using accent-insensitive matching")
+    else:
+        logging.info("Extension 'unaccent' not available; falling back to case-insensitive exact matching")
+    return _HAS_UNACCENT
+
+
+def _normalize_text(s: str) -> str:
+    # Normalize to NFC to avoid combining-character mismatches
+    return unicodedata.normalize("NFC", s or "")
+
 def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
+    name = _normalize_text(spreadsheet_name)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            "SELECT * FROM public.course_old WHERE TRIM(spreadsheet_name) = TRIM(%s)",
-            (spreadsheet_name,),
-        )
+        if _has_unaccent(conn):
+            cur.execute(
+                "SELECT * FROM public.course_old WHERE TRIM(unaccent(lower(spreadsheet_name))) = TRIM(unaccent(lower(%s)))",
+                (name,),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM public.course_old WHERE lower(TRIM(spreadsheet_name)) = lower(TRIM(%s))",
+                (name,),
+            )
         return list(cur.fetchall())
 
 
@@ -102,6 +135,31 @@ def copy_course_and_related(
     return course_copied, classes_copied, student_copied, course_id
 
 
+def _read_input_lines(input_path: str) -> List[str]:
+    # Read bytes and try common encodings to preserve diacritics
+    with open(input_path, 'rb') as f:
+        data = f.read()
+    for enc in ("utf-8-sig", "utf-8"):
+        try:
+            text = data.decode(enc)
+            if enc != "utf-8":
+                logging.info("Decoded input using encoding=%s", enc)
+            return text.splitlines()
+        except UnicodeDecodeError:
+            pass
+    for enc in ("cp1252", "latin-1"):
+        try:
+            text = data.decode(enc)
+            logging.info("Decoded input using fallback encoding=%s", enc)
+            return text.splitlines()
+        except UnicodeDecodeError:
+            pass
+    # Last resort: replace undecodable bytes
+    text = data.decode("utf-8", errors="replace")
+    logging.warning("Decoded input with replacement characters; some matches may fail")
+    return text.splitlines()
+
+
 def orchestrate(conn, input_path: str, dry_run: bool = False):
     course_cols = fetch_table_columns(conn, 'course_old')
     class_cols = fetch_table_columns(conn, 'class_old')
@@ -114,8 +172,7 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
     copied_students = 0
 
     logging.info(f"Reading input file: {input_path} (dry_run={dry_run})")
-    with open(input_path, 'r', encoding='utf-8', errors='replace') as f:
-        for line in f:
+    for line in _read_input_lines(input_path):
             s = line.strip()
             if not s:
                 continue
