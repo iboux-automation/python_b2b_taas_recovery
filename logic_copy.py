@@ -51,6 +51,11 @@ def copy_course_and_related(
     course_id = course_row['id']
     student_id = course_row.get('student_id')
 
+    # If no customer type (neither TAAS nor B2B), skip copying entirely
+    if not customer_type:
+        logging.debug(f"Skip copy for course id={course_id}: no customer_type inferred")
+        return False, 0, 0, course_id
+
     ensure_clone_table(conn, 'course_old', 'course_taas')
     ensure_clone_table(conn, 'class_old', 'class_taas')
 
@@ -115,6 +120,9 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
                 continue
 
             ctype = infer_customer_type(s)
+            if not ctype:
+                logging.debug(f"Skip path without customer type (neither TAAS nor B2B): {s}")
+                continue
 
             courses = find_courses_by_spreadsheet_name(conn, filename)
             if not courses:
@@ -144,4 +152,3 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
         'classes_copied': copied_classes,
         'students_copied': copied_students,
     }
-
