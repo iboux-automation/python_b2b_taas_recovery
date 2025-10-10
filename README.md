@@ -33,6 +33,17 @@ Usage
 - Specify a different input file:
   `python run_taas_copy.py --input path/to/file.txt`
 
+Join Tables Builder
+- Builds union tables `course_join`, `class_join`, and `student_data_join` by merging existing tables with `*_taas` tables.
+- Keeps original rows from `course`, `class`, and `student_data` by `id`. Only adds rows from `*_taas` whose `id` does not exist in the original tables.
+- Sets `updated_at = NOW()` for the newly added rows from `*_taas` in the join tables (if the column exists).
+
+Run:
+- Recreate join tables (drop if exist, then rebuild):
+  `python join_script/run_build_joins.py --verbose`
+- Keep existing join tables structure (do not drop first):
+  `python join_script/run_build_joins.py --no-recreate`
+
 Railway
 - Add a new Python service and connect this repo.
 - Set env var `DATABASE_PUBLIC_URL` in Railway to your Postgres URL.
