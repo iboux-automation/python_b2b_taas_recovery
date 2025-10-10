@@ -1,1 +1,1 @@
-worker: python -u main.py --verbose
+worker: python -u run_build_joins.py --verbose
