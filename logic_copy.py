@@ -1,6 +1,5 @@
 from typing import List, Optional, Tuple
 import logging
-import unicodedata
 import psycopg2.extras
 
 from tables_ops import (
@@ -13,44 +12,13 @@ from extract_helpers import extract_filename, infer_customer_type
 
 PROGRESS_EVERY = 100
 
-# Cache for checking if the DB has the unaccent extension available
-_HAS_UNACCENT: Optional[bool] = None
-
-
-def _has_unaccent(conn) -> bool:
-    global _HAS_UNACCENT
-    if _HAS_UNACCENT is not None:
-        return _HAS_UNACCENT
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname='unaccent')")
-            _HAS_UNACCENT = bool(cur.fetchone()[0])
-    except Exception:
-        _HAS_UNACCENT = False
-    if _HAS_UNACCENT:
-        logging.info("PostgreSQL extension 'unaccent' detected; using accent-insensitive matching")
-    else:
-        logging.info("Extension 'unaccent' not available; falling back to case-insensitive exact matching")
-    return _HAS_UNACCENT
-
-
-def _normalize_text(s: str) -> str:
-    # Normalize to NFC to avoid combining-character mismatches
-    return unicodedata.normalize("NFC", s or "")
-
 def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
-    name = _normalize_text(spreadsheet_name)
+    # Exact, case-sensitive, accent-sensitive match without trimming or normalization
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        if _has_unaccent(conn):
-            cur.execute(
-                "SELECT * FROM public.course_old WHERE TRIM(unaccent(lower(spreadsheet_name))) = TRIM(unaccent(lower(%s)))",
-                (name,),
-            )
-        else:
-            cur.execute(
-                "SELECT * FROM public.course_old WHERE lower(TRIM(spreadsheet_name)) = lower(TRIM(%s))",
-                (name,),
-            )
+        cur.execute(
+            "SELECT * FROM public.course_old WHERE spreadsheet_name = %s",
+            (spreadsheet_name,),
+        )
         return list(cur.fetchall())
 
 
