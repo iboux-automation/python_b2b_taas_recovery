@@ -1,7 +1,7 @@
 Python B2B/TaaS Recovery
 
 Overview
-- Reads each path from `b2b_paths/b2b_paths.cleaned.csv` (or a provided file).
+- Reads each path from `b2b_paths.cleaned.csv` (or a provided csv file).
 - Extracts the filename (after the last `/` and after the last `___`).
 - Infers type from the path: contains `TaaS`/`Babbel` → `taas`; contains `B2B`/`Companies` → `b2b`; otherwise `b2c`.
 - Finds matches in `public.new_course` where `spreadsheet_name` equals that filename (exact match).

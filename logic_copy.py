@@ -60,14 +60,20 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
     """
     # Build dynamic SET list based on existing columns to avoid errors if columns are missing
     cols = fetch_table_columns(conn, 'new_course')
+    # Normalize to uppercase for DB storage; use None for empty strings
+    type_db = (type_value or '').upper() or None
+    company_db = (company_name or '').upper() or None
+    lang_db = (course_language or '').upper() or None
+    taas_school_db = (taas_school or '').upper() or None
+
     set_parts = ["type = %s", "company_name = %s"]
-    params = [type_value, company_name]
+    params = [type_db, company_db]
     if 'course_language' in cols:
         set_parts.append("course_language = %s")
-        params.append(course_language or None)
+        params.append(lang_db)
     if 'taas_school' in cols:
         set_parts.append("taas_school = %s")
-        params.append(taas_school if type_value == 'taas' else None)
+        params.append(taas_school_db if type_db == 'TAAS' else None)
 
     set_sql = ", ".join(set_parts)
     if dry_run:
@@ -82,7 +88,7 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
             (*params, row_id),
         )
     logging.info(
-        f"Updated new_course id={row_id} type={type_value} company_name={company_name!r} course_language={course_language!r} taas_school={taas_school!r}"
+        f"Updated new_course id={row_id} type={type_db} company_name={company_db!r} course_language={lang_db!r} taas_school={taas_school_db!r}"
     )
 
 
