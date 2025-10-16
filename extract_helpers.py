@@ -52,7 +52,8 @@ def extract_company(path: str) -> str:
     # Example: ".../Companies___Travis - Korott___..." -> "Travis - Korott"
     comp_idx = None
     for i, p in enumerate(parts):
-        if p.strip().lower() == 'companies':
+        # Match segments like 'Companies' or '* - Companies' (case-insensitive)
+        if p.strip().lower().endswith('companies'):
             comp_idx = i
             break
     segment = ''
