@@ -42,9 +42,13 @@ def extract_course_language(path: str) -> str:
     s = path.strip().rstrip('\r')
     if not s:
         return ''
-    # Match language codes only when adjacent characters are not letters (or boundaries)
-    # Examples that should match: "[DE-", " EN ", "_IT ", "(FR)", " a DE ";
-    # Examples that should not match: "aDE ", "abcENz"
+    # 1) Prefer language codes found inside square brackets, e.g. "[DE - Babbel]", "[ EN ]"
+    for m in re.finditer(r"\[([^\]]+)\]", s):
+        bracket_text = m.group(1)
+        m_in = re.search(r"(?<![A-Za-z])(IT|ES|EN|FR|DE)(?![A-Za-z])", bracket_text)
+        if m_in:
+            return m_in.group(1)
+    # 2) Fallback: search the whole string with boundary rules
     m = re.search(r"(?<![A-Za-z])(IT|ES|EN|FR|DE)(?![A-Za-z])", s)
     if m:
         return m.group(1)

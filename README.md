@@ -8,7 +8,7 @@ Overview
 - Updates matched rows in `public.new_course`:
   - Sets `type` to `taas`, `b2b`, or `b2c`.
   - Sets `company_name` using the penultimate `___` segment from the path; if that segment contains the exact delimiter ` - `, uses only the substring after the last ` - ` (e.g., `"Travis - Korott"` → `"Korott"`).
-  - Sets `course_language` to one of `IT`, `ES`, `EN`, `FR`, `DE` when the code appears with non-letters on both sides (or boundaries). Examples: `"[DE-"`, `" EN "`, `"_IT "`, `"(FR)"` are valid; `"aDE "` is not valid, `"a DE "` is valid.
+  - Sets `course_language` to one of `IT`, `ES`, `EN`, `FR`, `DE`. It first searches inside square brackets (e.g., `[DE - Babbel]`, `[ EN ]`) and uses the first code found there. If none are found in brackets, it falls back to scanning the whole path using letter-boundary rules (e.g., `" EN ", "_IT ", "(FR)"`), avoiding matches embedded in words (so `"aDE "` is ignored, but `"a DE "` is valid).
   - Sets related `new_student_data.is_2on1` to `true` if the full path contains the exact substring `"2-1"`; otherwise sets it to `false`.
   - If `type` resolves to `taas`, sets `taas_school` (when the column exists) using a configurable mapping in `taas_schools.py` (e.g., path contains `"babbel"` → `BABBEL`, `"hola"` → `hola`). You can extend this list in that file.
 
