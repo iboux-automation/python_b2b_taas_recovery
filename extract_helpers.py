@@ -58,9 +58,6 @@ def extract_company(path: str) -> str:
     segment = ''
     if comp_idx is not None and comp_idx + 1 < len(parts):
         segment = parts[comp_idx + 1].strip()
-    elif len(parts) >= 2:
-        # Fallback: penultimate '___' part, if present
-        segment = parts[-2].strip()
 
     if segment:
         # If the exact delimiter " - " exists, take the part after the last occurrence
