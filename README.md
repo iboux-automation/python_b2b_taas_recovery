@@ -8,6 +8,7 @@ Overview
 - Updates matched rows in `public.new_course`:
   - Sets `type` to `taas`, `b2b`, or `b2c`.
   - Sets `company_name` using the penultimate `___` segment from the path; if that segment contains the exact delimiter ` - `, uses only the substring after the last ` - ` (e.g., `"Travis - Korott"` → `"Korott"`).
+  - Sets `course_language` to one of `IT`, `ES`, `EN`, `FR`, `DE` when the code appears with non-letters on both sides (or boundaries). Examples: `"[DE-"`, `" EN "`, `"_IT "`, `"(FR)"` are valid; `"aDE "` is not valid, `"a DE "` is valid.
 
 Notes
 - No rows are inserted; only existing rows in `public.new_course` are updated if a filename match is found.

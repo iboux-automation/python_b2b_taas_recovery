@@ -36,3 +36,16 @@ def extract_company(path: str) -> str:
             segment = segment.rsplit(" - ", 1)[-1].strip()
         return segment
     return ''
+
+
+def extract_course_language(path: str) -> str:
+    s = path.strip().rstrip('\r')
+    if not s:
+        return ''
+    # Match language codes only when adjacent characters are not letters (or boundaries)
+    # Examples that should match: "[DE-", " EN ", "_IT ", "(FR)", " a DE ";
+    # Examples that should not match: "aDE ", "abcENz"
+    m = re.search(r"(?<![A-Za-z])(IT|ES|EN|FR|DE)(?![A-Za-z])", s)
+    if m:
+        return m.group(1)
+    return ''
