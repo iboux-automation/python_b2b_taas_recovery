@@ -8,7 +8,8 @@ from tables_ops import (
     record_exists_by_id,
     insert_from_old_by_id,
 )
-from extract_helpers import extract_filename, infer_customer_type, extract_company
+from extract_helpers import extract_filename, infer_customer_type, extract_company, extract_course_language
+from taas_schools import detect_taas_school
 
 PROGRESS_EVERY = 100
 
@@ -31,20 +32,50 @@ def find_new_course_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dic
         return list(cur.fetchall())
 
 
-def update_new_course(conn, row_id: int, type_value: str, company_name: str, dry_run: bool = False) -> None:
+def update_student_is_2on1(conn, student_id: Optional[int], is_2on1: bool, dry_run: bool = False) -> None:
+    if student_id is None:
+        return
     if dry_run:
         logging.info(
-            f"[dry-run] Would update new_course id={row_id} set type=%r, company_name=%r",
-            type_value,
-            company_name,
+            f"[dry-run] Would update new_student_data id={student_id} set is_2on1=%r",
+            is_2on1,
         )
         return
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE public.new_course SET type = %s, company_name = %s WHERE id = %s",
-            (type_value, company_name, row_id),
+            "UPDATE public.new_student_data SET is_2on1 = %s WHERE id = %s",
+            (is_2on1, student_id),
         )
-    logging.info(f"Updated new_course id={row_id} type={type_value} company_name={company_name!r}")
+    logging.info(f"Updated new_student_data id={student_id} is_2on1={is_2on1}")
+
+
+def update_new_course(conn, row_id: int, type_value: str, company_name: str, course_language: str, taas_school: str, dry_run: bool = False) -> None:
+    # Build dynamic SET list based on existing columns to avoid errors if columns are missing
+    cols = fetch_table_columns(conn, 'new_course')
+    set_parts = ["type = %s", "company_name = %s"]
+    params = [type_value, company_name]
+    if 'course_language' in cols:
+        set_parts.append("course_language = %s")
+        params.append(course_language or None)
+    if 'taas_school' in cols:
+        set_parts.append("taas_school = %s")
+        params.append(taas_school if type_value == 'taas' else None)
+
+    set_sql = ", ".join(set_parts)
+    if dry_run:
+        logging.info(
+            f"[dry-run] Would update new_course id={row_id} set {set_sql} with params=%r",
+            params,
+        )
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE public.new_course SET {set_sql} WHERE id = %s",
+            (*params, row_id),
+        )
+    logging.info(
+        f"Updated new_course id={row_id} type={type_value} company_name={company_name!r} course_language={course_language!r} taas_school={taas_school!r}"
+    )
 
 
 def find_classes_by_course_id(conn, course_id) -> List[dict]:
@@ -179,6 +210,9 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
             type_value = inferred.lower()  # 'TAAS'/'B2B' -> 'taas'/'b2b'
 
         company_name = extract_company(s)
+        course_language = extract_course_language(s)
+        taas_school = detect_taas_school(s) if (type_value == 'taas') else None
+        is_2on1 = ('2-1' in s)
 
         rows = find_new_course_by_spreadsheet_name(conn, filename)
         if not rows:
@@ -186,7 +220,8 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
         else:
             total_matched_rows += len(rows)
             for row in rows:
-                update_new_course(conn, row['id'], type_value, company_name, dry_run=dry_run)
+                update_new_course(conn, row['id'], type_value, company_name, course_language, taas_school, dry_run=dry_run)
+                update_student_is_2on1(conn, row.get('student_id'), is_2on1, dry_run=dry_run)
                 total_updates += 1
 
         if total_paths % PROGRESS_EVERY == 0:
