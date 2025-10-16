@@ -2,6 +2,11 @@ import re
 
 
 def infer_customer_type(path: str):
+    """Infer high-level customer type from full path.
+
+    Returns 'TAAS' if path mentions TaaS/Babbel, 'B2B' if mentions B2B/Companies,
+    otherwise None. Case-insensitive substring checks.
+    """
     s = path.lower()
     is_taas = ('taas' in s) or ('babbel' in s)
     is_b2b = ('b2b' in s) or ('companies' in s)
@@ -13,6 +18,11 @@ def infer_customer_type(path: str):
 
 
 def extract_filename(path: str) -> str:
+    """Extract the spreadsheet/file name from a path.
+
+    Takes the last '/' segment, then the last '___' subsegment, and strips
+    trailing extensions like .tsv(.done|.empty).
+    """
     s = path.strip().rstrip('\r')
     if not s:
         return ''
@@ -23,6 +33,11 @@ def extract_filename(path: str) -> str:
 
 
 def extract_company(path: str) -> str:
+    """Extract company segment from path.
+
+    Uses the penultimate '___' segment; if it contains " - ", keep only the
+    substring after the last " - ". Returns empty string if none.
+    """
     s = path.strip().rstrip('\r')
     if not s:
         return ''
@@ -39,6 +54,14 @@ def extract_company(path: str) -> str:
 
 
 def extract_course_language(path: str) -> str:
+    """Extract course language code (IT, ES, EN, FR, DE) from path.
+
+    Preference order:
+    1) Inside square brackets (e.g., "[DE - Babbel]")
+    2) Anywhere in the path, but only when next to non-letters or edges
+       (so 'aDE ' is ignored, 'a DE ' is valid).
+    Returns empty string if not found.
+    """
     s = path.strip().rstrip('\r')
     if not s:
         return ''

@@ -9,14 +9,16 @@ from logic_copy import orchestrate
 
 
 def setup_logging(verbose: bool = False) -> None:
+    """Configure root logger in INFO/DEBUG level."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(message)s')
 
 
 def main():
+    """Entry point for command-line execution."""
     # Load environment variables from .env if present (local dev)
     load_dotenv()
-    parser = argparse.ArgumentParser(description='Update public.new_course type/company by matching spreadsheet_name from input paths')
+    parser = argparse.ArgumentParser(description='Update public.new_course from input paths (type, company, language, 2-1, taas school)')
     parser.add_argument('--input', default='b2b_paths/b2b_paths.cleaned.csv', help='Input file with one path per line')
     parser.add_argument('--dry-run', action='store_true', help='Do not write to DB, only log actions')
     parser.add_argument('--verbose', action='store_true', help='Verbose logging')

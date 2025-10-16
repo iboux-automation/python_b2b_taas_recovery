@@ -3,6 +3,7 @@ from psycopg2 import sql
 
 
 def ensure_clone_table(conn, old_table: str, new_table: str) -> None:
+    """Create new_table with structure cloned from old_table if it doesn't exist."""
     with conn.cursor() as cur:
         # Check if the target table exists
         cur.execute(
@@ -27,6 +28,7 @@ def ensure_clone_table(conn, old_table: str, new_table: str) -> None:
 
 
 def fetch_table_columns(conn, table: str) -> List[str]:
+    """Return list of column names for a given table in public schema."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -42,12 +44,14 @@ def fetch_table_columns(conn, table: str) -> List[str]:
 
 
 def record_exists_by_id(conn, table: str, id_value) -> bool:
+    """Check if a row exists by id in a public.* table."""
     with conn.cursor() as cur:
         cur.execute(f"SELECT 1 FROM public.{table} WHERE id = %s LIMIT 1", (id_value,))
         return cur.fetchone() is not None
 
 
 def insert_from_old_by_id(conn, old_table: str, new_table: str, columns: List[str], id_value) -> None:
+    """Insert into new_table selecting the same id/columns from old_table."""
     cols_csv = ','.join([f'"{c}"' for c in columns])
     with conn.cursor() as cur:
         cur.execute(

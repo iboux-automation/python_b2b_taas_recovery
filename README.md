@@ -23,11 +23,11 @@ Requirements
 
 Usage
 - Dry run (no DB writes):
-  `python run_taas_copy.py --dry-run --verbose`
+  `python cli.py --dry-run --verbose`
 - Real run:
-  `python run_taas_copy.py`
+  `python cli.py`
 - Specify a different input file:
-  `python run_taas_copy.py --input path/to/file.txt`
+  `python cli.py --input path/to/file.txt`
 
 Join Tables Builder
 - Builds union tables `course_join`, `class_join`, and `student_data_join` by merging existing tables with `*_taas` tables.
@@ -36,9 +36,9 @@ Join Tables Builder
 
 Run:
 - Recreate join tables (drop if exist, then rebuild):
-  `python join_script/run_build_joins.py --verbose`
+  `python run_build_joins.py --verbose`
 - Keep existing join tables structure (do not drop first):
-  `python join_script/run_build_joins.py --no-recreate`
+  `python run_build_joins.py --no-recreate`
 
 Railway
 - Add a new Python service and connect this repo.

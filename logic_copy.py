@@ -11,10 +11,13 @@ from tables_ops import (
 from extract_helpers import extract_filename, infer_customer_type, extract_company, extract_course_language
 from taas_schools import detect_taas_school
 
-PROGRESS_EVERY = 100
+PROGRESS_EVERY = 100  # Log progress every N paths
 
 def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
-    # Exact, case-sensitive, accent-sensitive match without trimming or normalization
+    """Find rows in legacy course table by exact spreadsheet_name.
+
+    Exact, case-sensitive, accent-sensitive match; no normalization.
+    """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT * FROM public.course_old WHERE spreadsheet_name = %s",
@@ -24,6 +27,7 @@ def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
 
 
 def find_new_course_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
+    """Find rows in new_course by exact spreadsheet_name."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT * FROM public.new_course WHERE spreadsheet_name = %s",
@@ -50,6 +54,10 @@ def update_student_is_2on1(conn, student_id: Optional[int], is_2on1: bool, dry_r
 
 
 def update_new_course(conn, row_id: int, type_value: str, company_name: str, course_language: str, taas_school: str, dry_run: bool = False) -> None:
+    """Update a new_course row with inferred fields.
+
+    Only sets optional fields (course_language, taas_school) if columns exist.
+    """
     # Build dynamic SET list based on existing columns to avoid errors if columns are missing
     cols = fetch_table_columns(conn, 'new_course')
     set_parts = ["type = %s", "company_name = %s"]
@@ -79,12 +87,17 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
 
 
 def find_classes_by_course_id(conn, course_id) -> List[dict]:
+    """Fetch related classes from legacy table by course_id."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM public.class_old WHERE course_id = %s", (course_id,))
         return list(cur.fetchall())
 
 
 def copy_student_if_needed(conn, student_id: Optional[int], student_cols: List[str], dry_run: bool = False) -> bool:
+    """Ensure a student exists in student_taas by copying from student_data_old.
+
+    Returns True if a copy would happen (or did happen), else False.
+    """
     if student_id is None:
         return False
     ensure_clone_table(conn, 'student_data_old', 'student_taas')
@@ -107,6 +120,7 @@ def copy_course_and_related(
     student_cols: List[str],
     dry_run: bool = False,
 ) -> Tuple[bool, int, int, int]:
+    """Copy a course and its classes/students into *_taas clones when applicable."""
     course_id = course_row['id']
     student_id = course_row.get('student_id')
 
@@ -160,6 +174,7 @@ def copy_course_and_related(
 
 
 def _read_input_lines(input_path: str) -> List[str]:
+    """Read file robustly trying common encodings to preserve diacritics."""
     # Read bytes and try common encodings to preserve diacritics
     with open(input_path, 'rb') as f:
         data = f.read()
@@ -185,6 +200,7 @@ def _read_input_lines(input_path: str) -> List[str]:
 
 
 def orchestrate(conn, input_path: str, dry_run: bool = False):
+    """Main pipeline: read paths, infer fields, and update DB rows."""
     total_paths = 0
     total_updates = 0
     total_matched_rows = 0
