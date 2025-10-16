@@ -4,6 +4,18 @@ from typing import Optional
 # Add more entries here as needed.
 TAAS_SCHOOLS = {
     "babbel": "BABBEL",
+    "eureka": "EUREKA",
+    "au pays des langues": "AU PAYS DES LANGUES",
+    "pro english courses": "PRO ENGLISH COURSES",
+    "pronto english": "PRONTO ENGLISH",
+    "intellecto": "INTELLECTO",
+    "salt idiomes": "SALT IDIOMES",
+    "language link": "LANGUAGE LINK",
+    "lic formation": "LIC FORMATION",
+    "instituto europeo de formación": "INSTITUTO EUROPEO DE FORMACIÓN",
+    "international travel advisor": "INTERNATIONAL TRAVEL ADVISOR",
+    "academy aziendali": "ACADEMY AZIENDALI",
+    "altissa": "ALTISSA",
 }
 
 

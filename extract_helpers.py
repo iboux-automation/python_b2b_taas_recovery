@@ -1,14 +1,19 @@
 import re
+from typing import Optional
+from taas_schools import detect_taas_school
 
 
 def infer_customer_type(path: str):
     """Infer high-level customer type from full path.
 
-    Returns 'TAAS' if path mentions TaaS/Babbel, 'B2B' if mentions B2B/Companies,
-    otherwise None. Case-insensitive substring checks.
+    - Returns 'TAAS' if the path contains the word 'taas' OR any TAAS school keyword
+      from `taas_schools.detect_taas_school`.
+    - Returns 'B2B' if the path mentions 'b2b' or 'companies'.
+    - Otherwise returns None.
+    All checks are case-insensitive.
     """
     s = path.lower()
-    is_taas = ('taas' in s) or ('babbel' in s)
+    is_taas = ('taas' in s) or (detect_taas_school(path) is not None)
     is_b2b = ('b2b' in s) or ('companies' in s)
     if is_taas:
         return 'TAAS'
