@@ -1,16 +1,16 @@
 Python B2B/TaaS Recovery
 
 Overview
-- Reads each path from `b2b_paths.cleaned.csv` (or a provided csv file).
+- Reads each path from `b2b_paths/b2b_paths.cleaned.csv` (or a provided file via `--input`).
 - Extracts the filename (after the last `/` and after the last `___`).
-- Infers type from the path: contains `TaaS`/`Babbel` → `taas`; contains `B2B`/`Companies` → `b2b`; otherwise `b2c`.
+- Infers type from the path: contains `TaaS`/`Babbel` → `TAAS`; contains `B2B`/`Companies` → `B2B`; otherwise `B2C`.
 - Finds matches in `public.new_course` where `spreadsheet_name` equals that filename (exact match).
 - Updates matched rows in `public.new_course`:
-  - Sets `type` to `taas`, `b2b`, or `b2c`.
-  - Sets `company_name` using the penultimate `___` segment from the path; if that segment contains the exact delimiter ` - `, uses only the substring after the last ` - ` (e.g., `"Travis - Korott"` → `"Korott"`).
-  - Sets `course_language` to one of `IT`, `ES`, `EN`, `FR`, `DE`. It first searches inside square brackets (e.g., `[DE - Babbel]`, `[ EN ]`) and uses the first code found there. If none are found in brackets, it falls back to scanning the whole path using letter-boundary rules (e.g., `" EN ", "_IT ", "(FR)"`), avoiding matches embedded in words (so `"aDE "` is ignored, but `"a DE "` is valid).
+  - Sets `type` to `TAAS`, `B2B`, or `B2C` (uppercased).
+  - Sets `company_name` using the penultimate `___` segment from the path; if that segment contains the exact delimiter ` - `, uses only the substring after the last ` - `. Stored uppercased (e.g., `"Travis - Korott"` → `"KOROTT"`).
+  - Sets `course_language` to one of `IT`, `ES`, `EN`, `FR`, `DE` (uppercased). It first searches inside square brackets (e.g., `[DE - Babbel]`, `[ EN ]`) and uses the first code found there. If none are found in brackets, it falls back to scanning the whole path using letter-boundary rules (e.g., `" EN ", "_IT ", "(FR)"`), avoiding matches embedded in words (so `"aDE "` is ignored, but `"a DE "` is valid).
   - Sets related `new_student_data.is_2on1` to `true` if the full path contains the exact substring `"2-1"`; otherwise sets it to `false`.
-  - If `type` resolves to `taas`, sets `taas_school` (when the column exists) using a configurable mapping in `taas_schools.py` (e.g., path contains `"babbel"` → `BABBEL`, `"hola"` → `hola`). You can extend this list in that file.
+  - If `type` resolves to `TAAS`, sets `taas_school` (when the column exists) using a configurable mapping in `taas_schools.py` (e.g., path contains `"babbel"` → stored as `BABBEL`, `"hola"` → stored as `HOLA`). You can extend this list in that file.
 
 Notes
 - No rows are inserted; only existing rows in `public.new_course` are updated if a filename match is found.
@@ -43,8 +43,8 @@ Run:
 Railway
 - Add a new Python service and connect this repo.
 - Set env var `DATABASE_PUBLIC_URL` in Railway to your Postgres URL.
-- The `Procfile` runs `python -u run_taas_copy.py` as a worker.
-- Optionally override the start command in the UI to add flags (e.g. `--dry-run`).
+- The provided `Procfile` runs the join builder as a worker: `python -u run_build_joins.py --verbose`.
+- To run the updater (`cli.py`) in Railway, either change the Procfile or override the start command in the service with `python -u cli.py --dry-run` (or without `--dry-run`).
 
 Input File
 - One path per line. Example line:
