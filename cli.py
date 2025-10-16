@@ -16,7 +16,7 @@ def setup_logging(verbose: bool = False) -> None:
 def main():
     # Load environment variables from .env if present (local dev)
     load_dotenv()
-    parser = argparse.ArgumentParser(description='Copy *_old tables to *_taas based on b2b paths match by spreadsheet_name')
+    parser = argparse.ArgumentParser(description='Update public.new_course type/company by matching spreadsheet_name from input paths')
     parser.add_argument('--input', default='b2b_paths/b2b_paths.cleaned.csv', help='Input file with one path per line')
     parser.add_argument('--dry-run', action='store_true', help='Do not write to DB, only log actions')
     parser.add_argument('--verbose', action='store_true', help='Verbose logging')
@@ -28,7 +28,7 @@ def main():
         logging.warning(f"Input file not found: {args.input}")
 
     logging.info(
-        "Starting run with input=%s dry_run=%s verbose=%s",
+        "Starting update run with input=%s dry_run=%s verbose=%s",
         args.input,
         args.dry_run,
         args.verbose,
@@ -38,8 +38,8 @@ def main():
     try:
         summary = orchestrate(conn, args.input, dry_run=args.dry_run)
         logging.info(
-            "Done. Paths processed=%s, course matches=%s, courses copied=%s, classes copied=%s, students copied=%s",
-            summary['paths_processed'], summary['course_matches'], summary['courses_copied'], summary['classes_copied'], summary['students_copied']
+            "Done. Paths processed=%s, matched rows=%s, rows updated=%s",
+            summary['paths_processed'], summary['matched_rows'], summary['rows_updated']
         )
     finally:
         conn.close()

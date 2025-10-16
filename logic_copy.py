@@ -8,7 +8,7 @@ from tables_ops import (
     record_exists_by_id,
     insert_from_old_by_id,
 )
-from extract_helpers import extract_filename, infer_customer_type
+from extract_helpers import extract_filename, infer_customer_type, extract_company
 
 PROGRESS_EVERY = 100
 
@@ -20,6 +20,31 @@ def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
             (spreadsheet_name,),
         )
         return list(cur.fetchall())
+
+
+def find_new_course_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM public.new_course WHERE spreadsheet_name = %s",
+            (spreadsheet_name,),
+        )
+        return list(cur.fetchall())
+
+
+def update_new_course(conn, row_id: int, type_value: str, company_name: str, dry_run: bool = False) -> None:
+    if dry_run:
+        logging.info(
+            f"[dry-run] Would update new_course id={row_id} set type=%r, company_name=%r",
+            type_value,
+            company_name,
+        )
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE public.new_course SET type = %s, company_name = %s WHERE id = %s",
+            (type_value, company_name, row_id),
+        )
+    logging.info(f"Updated new_course id={row_id} type={type_value} company_name={company_name!r}")
 
 
 def find_classes_by_course_id(conn, course_id) -> List[dict]:
@@ -129,62 +154,52 @@ def _read_input_lines(input_path: str) -> List[str]:
 
 
 def orchestrate(conn, input_path: str, dry_run: bool = False):
-    course_cols = fetch_table_columns(conn, 'course_old')
-    class_cols = fetch_table_columns(conn, 'class_old')
-    student_cols = fetch_table_columns(conn, 'student_data_old')
-
     total_paths = 0
-    total_matches = 0
-    copied_courses = 0
-    copied_classes = 0
-    copied_students = 0
+    total_updates = 0
+    total_matched_rows = 0
 
     logging.info(f"Reading input file: {input_path} (dry_run={dry_run})")
     for line in _read_input_lines(input_path):
-            s = line.strip()
-            if not s:
-                continue
-            total_paths += 1
-            filename = extract_filename(s)
-            if not filename:
-                logging.debug(f"Skip unparsable line: {s}")
-                continue
+        s = line.strip()
+        if not s:
+            continue
+        total_paths += 1
 
-            ctype = infer_customer_type(s)
-            if not ctype:
-                logging.debug(f"Skip path without customer type (neither TAAS nor B2B): {s}")
-                continue
+        filename = extract_filename(s)
+        if not filename:
+            logging.debug(f"Skip unparsable line: {s}")
+            continue
 
-            courses = find_courses_by_spreadsheet_name(conn, filename)
-            if not courses:
-                logging.debug(f"No match in course_old for spreadsheet_name='{filename}'")
-                continue
+        # Infer type from the path; default to b2c if none
+        inferred = infer_customer_type(s)
+        if inferred is None:
+            type_value = 'b2c'
+        else:
+            # Map previous labels to lowercase for new schema
+            type_value = inferred.lower()  # 'TAAS'/'B2B' -> 'taas'/'b2b'
 
-            total_matches += len(courses)
-            for course in courses:
-                course_copied, classes_c, student_c, _ = copy_course_and_related(
-                    conn,
-                    course,
-                    ctype,
-                    course_cols,
-                    class_cols,
-                    student_cols,
-                    dry_run=dry_run,
-                )
-                if course_copied:
-                    copied_courses += 1
-                copied_classes += classes_c
-                copied_students += student_c
-            if total_paths % PROGRESS_EVERY == 0:
-                logging.info(
-                    "Progress: paths=%s, matches=%s, courses=%s, classes=%s, students=%s",
-                    total_paths, total_matches, copied_courses, copied_classes, copied_students,
-                )
+        company_name = extract_company(s)
+
+        rows = find_new_course_by_spreadsheet_name(conn, filename)
+        if not rows:
+            logging.debug(f"No match in new_course for spreadsheet_name='{filename}'")
+        else:
+            total_matched_rows += len(rows)
+            for row in rows:
+                update_new_course(conn, row['id'], type_value, company_name, dry_run=dry_run)
+                total_updates += 1
+
+        if total_paths % PROGRESS_EVERY == 0:
+            logging.info(
+                "Progress: paths=%s, matched_rows=%s, updates=%s",
+                total_paths, total_matched_rows, total_updates,
+            )
+
+    if not dry_run:
+        conn.commit()
 
     return {
         'paths_processed': total_paths,
-        'course_matches': total_matches,
-        'courses_copied': copied_courses,
-        'classes_copied': copied_classes,
-        'students_copied': copied_students,
+        'matched_rows': total_matched_rows,
+        'rows_updated': total_updates,
     }

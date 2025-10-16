@@ -3,22 +3,15 @@ Python B2B/TaaS Recovery
 Overview
 - Reads each path from `b2b_paths/b2b_paths.cleaned.csv` (or a provided file).
 - Extracts the filename (after the last `/` and after the last `___`).
-- Determines customer type (TAAS or B2B) from the path; if neither applies, the line is skipped and nothing is copied.
-- Finds matches in `public.course_old` where `spreadsheet_name` equals that filename.
-- Copies the matching `course_old` rows to `public.course_taas`.
-- Copies related `class_old` rows (by `course_id`) to `public.class_taas`.
-- Copies the related `student_data_old` row (by `course_old.student_id`) to `public.student_taas`.
-- Updates `course_taas.customer_type` based on the path text:
-  - Contains `TaaS` or `Babbel` → `TAAS`
-  - Else contains `B2B` or `Companies` → `B2B`
-  - If both apply, `TAAS` wins
-  - Matching is case-insensitive
+- Infers type from the path: contains `TaaS`/`Babbel` → `taas`; contains `B2B`/`Companies` → `b2b`; otherwise `b2c`.
+- Finds matches in `public.new_course` where `spreadsheet_name` equals that filename (exact match).
+- Updates matched rows in `public.new_course`:
+  - Sets `type` to `taas`, `b2b`, or `b2c`.
+  - Sets `company_name` using the penultimate `___` segment from the path; if that segment contains the exact delimiter ` - `, uses only the substring after the last ` - ` (e.g., `"Travis - Korott"` → `"Korott"`).
 
 Notes
-- The script creates `course_taas`, `class_taas`, and `student_taas` tables if they do not exist, cloning the column structure from `*_old` tables.
-- It avoids foreign keys and indexes in the clone to prevent cross-table dependency headaches. Column order is preserved.
-- Records are inserted only if the same `id` is not already present in the target table.
-- Lines without TAAS/B2B classification are ignored; no destination tables are created nor records inserted for those lines.
+- No rows are inserted; only existing rows in `public.new_course` are updated if a filename match is found.
+- If a path does not imply `taas` or `b2b`, the `type` defaults to `b2c`.
 
 Requirements
 - Environment variable `DATABASE_PUBLIC_URL` must point to your PostgreSQL instance (Railway compatible).

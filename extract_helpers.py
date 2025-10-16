@@ -21,3 +21,18 @@ def extract_filename(path: str) -> str:
     tail = re.sub(r"\.tsv(?:\.(?:done|empty))?$", "", tail, flags=re.IGNORECASE)
     return tail.strip()
 
+
+def extract_company(path: str) -> str:
+    s = path.strip().rstrip('\r')
+    if not s:
+        return ''
+    tail = s.rsplit('/', 1)[-1]
+    parts = tail.split('___')
+    # Heuristic: company segment is the penultimate '___' part, if present
+    if len(parts) >= 2:
+        segment = parts[-2].strip()
+        # If the exact delimiter " - " exists, take the part after the last occurrence
+        if " - " in segment:
+            segment = segment.rsplit(" - ", 1)[-1].strip()
+        return segment
+    return ''
