@@ -48,13 +48,26 @@ def extract_company(path: str) -> str:
         return ''
     tail = s.rsplit('/', 1)[-1]
     parts = tail.split('___')
-    # Heuristic: company segment is the penultimate '___' part, if present
-    if len(parts) >= 2:
+    # Prefer the segment immediately after a 'Companies' marker if present.
+    # Example: ".../Companies___Travis - Korott___..." -> "Travis - Korott"
+    comp_idx = None
+    for i, p in enumerate(parts):
+        if p.strip().lower() == 'companies':
+            comp_idx = i
+            break
+    segment = ''
+    if comp_idx is not None and comp_idx + 1 < len(parts):
+        segment = parts[comp_idx + 1].strip()
+    elif len(parts) >= 2:
+        # Fallback: penultimate '___' part, if present
         segment = parts[-2].strip()
+
+    if segment:
         # If the exact delimiter " - " exists, take the part after the last occurrence
         if " - " in segment:
             segment = segment.rsplit(" - ", 1)[-1].strip()
-        return segment
+        # Return uppercased company for consistency with DB normalization
+        return segment.upper()
     return ''
 
 
