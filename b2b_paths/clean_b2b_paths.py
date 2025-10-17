@@ -40,8 +40,8 @@ def transform_path(line: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Clean GCS paths: keep first folder and filename without .tsv/.tsv.*")
-    parser.add_argument("--input", default="iboux-system-be/python_b2b_recovery/b2b_paths.csv", help="Input CSV file with GCS paths")
-    parser.add_argument("--output", default="iboux-system-be/python_b2b_recovery/b2b_paths.cleaned.csv", help="Output CSV path")
+    parser.add_argument("--input", default="b2b_paths/b2b_paths2.csv", help="Input CSV file with GCS paths")
+    parser.add_argument("--output", default="b2b_paths/b2b_paths2.cleaned.csv", help="Output CSV path")
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)

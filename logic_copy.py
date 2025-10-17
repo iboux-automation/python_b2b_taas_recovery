@@ -1,6 +1,5 @@
 from typing import List, Optional, Tuple
 import logging
-import unicodedata
 import psycopg2.extras
 
 from tables_ops import (
@@ -9,58 +8,156 @@ from tables_ops import (
     record_exists_by_id,
     insert_from_old_by_id,
 )
-from extract_helpers import extract_filename, infer_customer_type
+from extract_helpers import extract_filename, infer_customer_type, extract_company, extract_course_language
+from taas_schools import detect_taas_school
 
-PROGRESS_EVERY = 100
+PROGRESS_EVERY = 100  # Log progress every N paths
 
-# Cache for checking if the DB has the unaccent extension available
-_HAS_UNACCENT: Optional[bool] = None
+def _table_exists(conn, table: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema='public' AND table_name=%s
+            """,
+            (table,),
+        )
+        return cur.fetchone() is not None
 
+def _prune_new_course_duplicates(conn, rows, dry_run: bool = False):
+    """Delete zero-class duplicates when all matches share same student_id.
 
-def _has_unaccent(conn) -> bool:
-    global _HAS_UNACCENT
-    if _HAS_UNACCENT is not None:
-        return _HAS_UNACCENT
-    try:
+    Rules:
+    - One match → do nothing.
+    - Multiple matches BUT different student_id → do nothing.
+    - Multiple matches AND same student_id:
+      * If some have classes (>0): delete all with 0 classes; keep the rest.
+      * If all have 0 classes: keep the first, delete the others.
+
+    Returns (kept_rows, messages, dup_count). Each message: "duplicate: delete course id=<id> | 0 classes".
+    """
+    messages = []
+    dup_count = 0
+    if len(rows) <= 1:
+        return rows, messages, dup_count
+    sids = {r.get('student_id') for r in rows}
+    if len(sids) != 1:
+        return rows, messages, dup_count
+    dup_count = len(rows) - 1
+    has_new_class = _table_exists(conn, 'new_class')
+    counts = {}
+    if has_new_class:
         with conn.cursor() as cur:
-            cur.execute("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname='unaccent')")
-            _HAS_UNACCENT = bool(cur.fetchone()[0])
-    except Exception:
-        _HAS_UNACCENT = False
-    if _HAS_UNACCENT:
-        logging.info("PostgreSQL extension 'unaccent' detected; using accent-insensitive matching")
+            for r in rows:
+                cid = r.get('id')
+                cur.execute("SELECT COUNT(*) FROM public.new_class WHERE course_id = %s", (cid,))
+                counts[cid] = cur.fetchone()[0]
     else:
-        logging.info("Extension 'unaccent' not available; falling back to case-insensitive exact matching")
-    return _HAS_UNACCENT
-
-
-def _normalize_text(s: str) -> str:
-    # Normalize to NFC to avoid combining-character mismatches
-    return unicodedata.normalize("NFC", s or "")
+        for r in rows:
+            counts[r.get('id')] = 0
+    zero = [r for r in rows if counts.get(r.get('id'), 0) == 0]
+    nonzero = [r for r in rows if counts.get(r.get('id'), 0) > 0]
+    to_delete = []
+    if nonzero:
+        to_delete = zero
+    else:
+        if len(zero) > 1:
+            to_delete = zero[1:]
+    kept_ids = {r.get('id') for r in rows} - {r.get('id') for r in to_delete}
+    kept_rows = [r for r in rows if r.get('id') in kept_ids]
+    for r in to_delete:
+        cid = r.get('id')
+        messages.append(f"duplicate: delete course id={cid} | 0 classes")
+        if dry_run:
+            continue
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM public.new_course WHERE id = %s", (cid,))
+        conn.commit()
+    return kept_rows, messages, dup_count
 
 def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
-    name = _normalize_text(spreadsheet_name)
+    """Find rows in legacy course table by exact spreadsheet_name.
+
+    Exact, case-sensitive, accent-sensitive match; no normalization.
+    """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        if _has_unaccent(conn):
-            cur.execute(
-                "SELECT * FROM public.course_old WHERE TRIM(unaccent(lower(spreadsheet_name))) = TRIM(unaccent(lower(%s)))",
-                (name,),
-            )
-        else:
-            cur.execute(
-                "SELECT * FROM public.course_old WHERE lower(TRIM(spreadsheet_name)) = lower(TRIM(%s))",
-                (name,),
-            )
+        cur.execute(
+            "SELECT * FROM public.course_old WHERE spreadsheet_name = %s",
+            (spreadsheet_name,),
+        )
         return list(cur.fetchall())
 
 
+def find_new_course_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
+    """Find rows in new_course by exact spreadsheet_name."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM public.new_course WHERE spreadsheet_name = %s",
+            (spreadsheet_name,),
+        )
+        return list(cur.fetchall())
+
+
+def update_student_is_2on1(conn, student_id: Optional[int], is_2on1: bool, dry_run: bool = False) -> None:
+    if student_id is None:
+        return
+    if dry_run:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE public.new_student_data SET is_2on1 = %s WHERE id = %s",
+            (is_2on1, student_id),
+        )
+    logging.info(f"Updated new_student_data id={student_id} is_2on1={is_2on1}")
+
+
+def update_new_course(conn, row_id: int, type_value: str, company_name: str, course_language: str, taas_school: str, dry_run: bool = False) -> None:
+    """Update a new_course row with inferred fields.
+
+    Only sets optional fields (course_language, taas_school) if columns exist.
+    """
+    # Build dynamic SET list based on existing columns to avoid errors if columns are missing
+    cols = fetch_table_columns(conn, 'new_course')
+    # Normalize to uppercase for DB storage; use None for empty strings
+    type_db = (type_value or '').upper() or None
+    company_db = (company_name or '').upper() or None
+    lang_db = (course_language or '').upper() or None
+    taas_school_db = (taas_school or '').upper() or None
+
+    set_parts = ["type = %s", "company_name = %s"]
+    params = [type_db, company_db]
+    if 'course_language' in cols:
+        set_parts.append("course_language = %s")
+        params.append(lang_db)
+    if 'taas_school' in cols:
+        set_parts.append("taas_school = %s")
+        params.append(taas_school_db if type_db == 'TAAS' else None)
+
+    set_sql = ", ".join(set_parts)
+    if dry_run:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE public.new_course SET {set_sql} WHERE id = %s",
+            (*params, row_id),
+        )
+    logging.info(
+        f"Updated new_course id={row_id} type={type_db} company_name={company_db!r} course_language={lang_db!r} taas_school={taas_school_db!r}"
+    )
+
+
 def find_classes_by_course_id(conn, course_id) -> List[dict]:
+    """Fetch related classes from legacy table by course_id."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM public.class_old WHERE course_id = %s", (course_id,))
         return list(cur.fetchall())
 
 
 def copy_student_if_needed(conn, student_id: Optional[int], student_cols: List[str], dry_run: bool = False) -> bool:
+    """Ensure a student exists in student_taas by copying from student_data_old.
+
+    Returns True if a copy would happen (or did happen), else False.
+    """
     if student_id is None:
         return False
     ensure_clone_table(conn, 'student_data_old', 'student_taas')
@@ -83,6 +180,7 @@ def copy_course_and_related(
     student_cols: List[str],
     dry_run: bool = False,
 ) -> Tuple[bool, int, int, int]:
+    """Copy a course and its classes/students into *_taas clones when applicable."""
     course_id = course_row['id']
     student_id = course_row.get('student_id')
 
@@ -136,6 +234,7 @@ def copy_course_and_related(
 
 
 def _read_input_lines(input_path: str) -> List[str]:
+    """Read file robustly trying common encodings to preserve diacritics."""
     # Read bytes and try common encodings to preserve diacritics
     with open(input_path, 'rb') as f:
         data = f.read()
@@ -161,62 +260,70 @@ def _read_input_lines(input_path: str) -> List[str]:
 
 
 def orchestrate(conn, input_path: str, dry_run: bool = False):
-    course_cols = fetch_table_columns(conn, 'course_old')
-    class_cols = fetch_table_columns(conn, 'class_old')
-    student_cols = fetch_table_columns(conn, 'student_data_old')
-
+    """Main pipeline: read paths, infer fields, and update DB rows."""
     total_paths = 0
-    total_matches = 0
-    copied_courses = 0
-    copied_classes = 0
-    copied_students = 0
+    total_updates = 0
+    total_matched_rows = 0
 
     logging.info(f"Reading input file: {input_path} (dry_run={dry_run})")
     for line in _read_input_lines(input_path):
-            s = line.strip()
-            if not s:
-                continue
-            total_paths += 1
-            filename = extract_filename(s)
-            if not filename:
-                logging.debug(f"Skip unparsable line: {s}")
-                continue
+        s = line.strip()
+        if not s:
+            continue
+        total_paths += 1
 
-            ctype = infer_customer_type(s)
-            if not ctype:
-                logging.debug(f"Skip path without customer type (neither TAAS nor B2B): {s}")
-                continue
+        filename = extract_filename(s)
+        if not filename:
+            logging.debug(f"Skip unparsable line: {s}")
+            continue
 
-            courses = find_courses_by_spreadsheet_name(conn, filename)
-            if not courses:
-                logging.debug(f"No match in course_old for spreadsheet_name='{filename}'")
-                continue
+        # Infer type from the path; default to b2c if none
+        inferred = infer_customer_type(s)
+        if inferred is None:
+            type_value = 'b2c'
+        else:
+            # Map previous labels to lowercase for new schema
+            type_value = inferred.lower()  # 'TAAS'/'B2B' -> 'taas'/'b2b'
 
-            total_matches += len(courses)
-            for course in courses:
-                course_copied, classes_c, student_c, _ = copy_course_and_related(
-                    conn,
-                    course,
-                    ctype,
-                    course_cols,
-                    class_cols,
-                    student_cols,
-                    dry_run=dry_run,
-                )
-                if course_copied:
-                    copied_courses += 1
-                copied_classes += classes_c
-                copied_students += student_c
-            if total_paths % PROGRESS_EVERY == 0:
+        company_name = extract_company(s)
+        course_language = extract_course_language(s)
+        taas_school = detect_taas_school(s) if (type_value == 'taas') else None
+        is_2on1 = ('2-1' in s)
+
+        rows = find_new_course_by_spreadsheet_name(conn, filename)
+        if rows:
+            # Deduplicate by (spreadsheet_name, student_id): keep first per student
+            rows, dup_msgs, dup_count = _prune_new_course_duplicates(conn, rows, dry_run=dry_run)
+            total_matched_rows += len(rows)
+            # Print a concise, readable block per path
+            logging.info("* %s | Match", s)
+            if dup_count > 0:
+                logging.info("duplicates: %s", dup_count)
+            for msg in dup_msgs:
+                logging.info(msg)
+            for row in rows:
+                new_type = (type_value or '').upper()
+                new_company = (company_name or '').upper()
+                new_lang = (course_language or '').upper()
+                new_taas_school = (taas_school or '').upper() if new_type == 'TAAS' else ''
+
                 logging.info(
-                    "Progress: paths=%s, matches=%s, courses=%s, classes=%s, students=%s",
-                    total_paths, total_matches, copied_courses, copied_classes, copied_students,
+                    "new_course: [type:%s, company_name:%s, course_language:%s, taas_school:%s]",
+                    new_type, new_company or '', new_lang or '', new_taas_school or ''
                 )
+                logging.info("new_student_data: [is_2on1:%s]", is_2on1)
+
+                update_new_course(conn, row['id'], type_value, company_name, course_language, taas_school, dry_run=dry_run)
+                update_student_is_2on1(conn, row.get('student_id'), is_2on1, dry_run=dry_run)
+                total_updates += 1
+        else:
+            logging.info("* %s | No Match", s)
+
+    if not dry_run:
+        conn.commit()
 
     return {
         'paths_processed': total_paths,
-        'course_matches': total_matches,
-        'courses_copied': copied_courses,
-        'classes_copied': copied_classes,
-        'students_copied': copied_students,
+        'matched_rows': total_matched_rows,
+        'rows_updated': total_updates,
     }

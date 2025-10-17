@@ -1,37 +1,41 @@
 Python B2B/TaaS Recovery
 
 Overview
-- Reads each path from `b2b_paths/b2b_paths.cleaned.csv` (or a provided file).
+- Reads each path from `b2b_paths.cleaned.csv` (or a provided file via `--input`).
 - Extracts the filename (after the last `/` and after the last `___`).
-- Determines customer type (TAAS or B2B) from the path; if neither applies, the line is skipped and nothing is copied.
-- Finds matches in `public.course_old` where `spreadsheet_name` equals that filename.
-- Copies the matching `course_old` rows to `public.course_taas`.
-- Copies related `class_old` rows (by `course_id`) to `public.class_taas`.
-- Copies the related `student_data_old` row (by `course_old.student_id`) to `public.student_taas`.
-- Updates `course_taas.customer_type` based on the path text:
-  - Contains `TaaS` or `Babbel` → `TAAS`
-  - Else contains `B2B` or `Companies` → `B2B`
-  - If both apply, `TAAS` wins
-  - Matching is case-insensitive
+- Infers type from the path: contains `taas` OR any configured TAAS school keyword (see `taas_schools.py`) → `TAAS`; contains `B2B`/`Companies` → `B2B`; otherwise `B2C`.
+- Finds matches in `public.new_course` where `spreadsheet_name` equals that filename (exact match).
+- Updates matched rows in `public.new_course`:
+  - Sets `type` to `TAAS`, `B2B`, or `B2C` (uppercased).
+  - Sets `company_name` only when a segment ending with `Companies` (case-insensitive) is present (e.g., `"Travis - Companies"`, `"Companies"`); it uses the segment immediately after it. Within that segment, if the exact delimiter ` - ` exists, only the substring after the last ` - ` is kept. Stored uppercased (e.g., `".../Ksenija - Companies___Ksenija - LAMA___..."` → `"LAMA"`). If no such segment exists, `company_name` is left NULL.
+  - Sets `course_language` to one of `IT`, `ES`, `EN`, `FR`, `DE` (uppercased). It first searches inside square brackets (e.g., `[DE - Babbel]`, `[ EN ]`) and uses the first code found there. If none are found in brackets, it falls back to scanning the whole path using letter-boundary rules (e.g., `" EN ", "_IT ", "(FR)"`), avoiding matches embedded in words (so `"aDE "` is ignored, but `"a DE "` is valid).
+  - Sets related `new_student_data.is_2on1` to `true` if the full path contains the exact substring `"2-1"`; otherwise sets it to `false`.
+  - If `type` resolves to `TAAS`, sets `taas_school` (when the column exists) using a configurable mapping in `taas_schools.py` (e.g., path contains `"babbel"` → stored as `BABBEL`, `"hola"` → stored as `HOLA`). You can extend this list in that file.
 
 Notes
-- The script creates `course_taas`, `class_taas`, and `student_taas` tables if they do not exist, cloning the column structure from `*_old` tables.
-- It avoids foreign keys and indexes in the clone to prevent cross-table dependency headaches. Column order is preserved.
-- Records are inserted only if the same `id` is not already present in the target table.
-- Lines without TAAS/B2B classification are ignored; no destination tables are created nor records inserted for those lines.
+- No rows are inserted; only existing rows in `public.new_course` are updated if a filename match is found.
+- If a path does not imply `taas` or `b2b`, the `type` defaults to `B2C`.
+
+Duplicate Handling
+- When multiple `public.new_course` rows share the same `spreadsheet_name` and ALL share the same `student_id`:
+  - If some have related classes (>0), delete all duplicates that have 0 classes; keep those with classes.
+  - If all have 0 related classes, keep only one (the first), delete the rest.
+  - If only one course matches the `spreadsheet_name`, do nothing (even if it has 0 classes).
+  - If matches have different `student_id` values, do nothing.
+  - Log only deletions (same text in dry‑run and real): `duplicate: delete course id=<id> | 0 classes`.
 
 Requirements
-- Environment variable `DATABASE_PUBLIC_URL` must point to your PostgreSQL instance (Railway compatible).
+- Environment variable `DATABASE_PUBLIC_URL` must point to the PostgreSQL instance (Railway compatible).
 - For local dev, put it in `.env` and it will be auto‑loaded.
 - Python 3 with `psycopg2-binary` and `python-dotenv` (installed via `requirements.txt`).
 
 Usage
 - Dry run (no DB writes):
-  `python run_taas_copy.py --dry-run --verbose`
+  `python cli.py --dry-run --verbose`
 - Real run:
-  `python run_taas_copy.py`
+  `python cli.py`
 - Specify a different input file:
-  `python run_taas_copy.py --input path/to/file.txt`
+  `python cli.py --input path/to/file.txt`
 
 Join Tables Builder
 - Builds union tables `course_join`, `class_join`, and `student_data_join` by merging existing tables with `*_taas` tables.
@@ -40,17 +44,27 @@ Join Tables Builder
 
 Run:
 - Recreate join tables (drop if exist, then rebuild):
-  `python join_script/run_build_joins.py --verbose`
+  `python run_build_joins.py --verbose`
 - Keep existing join tables structure (do not drop first):
-  `python join_script/run_build_joins.py --no-recreate`
+  `python run_build_joins.py --no-recreate`
 
 Railway
 - Add a new Python service and connect this repo.
 - Set env var `DATABASE_PUBLIC_URL` in Railway to your Postgres URL.
-- The `Procfile` runs `python -u run_taas_copy.py` as a worker.
-- Optionally override the start command in the UI to add flags (e.g. `--dry-run`).
+- The provided `Procfile` runs the join builder as a worker: `python -u run_build_joins.py --verbose`.
+- To run the updater (`cli.py`) in Railway, either change the Procfile or override the start command in the service with `python -u cli.py --dry-run` (or without `--dry-run`).
 
 Input File
 - One path per line. Example line:
   `EX-STUDENTS1/Ex-Students - TaaS___ABA English Ex-Students___ABA English - NEW___Carla Sanches (ABA ENGLISH) GB 22917764`
 - Extracted filename → `Carla Sanches (ABA ENGLISH) GB 22917764`
+
+Log Format
+- On match:
+  - `* <pathname> | Match`
+  - `duplicates: <N>` when more than one course matches and all share the same `student_id`.
+  - optional duplicate deletion lines right after the pathname (only when a duplicate will be deleted under the rules above)
+  - `new_course: [type:<TYPE>, company_name:<COMPANY>, course_language:<LANG>, taas_school:<SCHOOL>]`
+  - `new_student_data: [is_2on1:<True|False>]`
+- On no match:
+  - `* <pathname> | No Match`
