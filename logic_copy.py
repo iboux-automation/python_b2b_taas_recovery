@@ -124,7 +124,7 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
     lang_db = (course_language or '').upper() or None
     taas_school_db = (taas_school or '').upper() or None
 
-    set_parts = ["type = %s", "company_name = %s"]
+    set_parts = ["customer_type = %s", "company_name = %s"]
     params = [type_db, company_db]
     if 'course_language' in cols:
         set_parts.append("course_language = %s")
@@ -142,7 +142,7 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
             (*params, row_id),
         )
     logging.info(
-        f"Updated new_course id={row_id} type={type_db} company_name={company_db!r} course_language={lang_db!r} taas_school={taas_school_db!r}"
+        f"Updated new_course id={row_id} customer_type={type_db} company_name={company_db!r} course_language={lang_db!r} taas_school={taas_school_db!r}"
     )
 
 
@@ -308,7 +308,7 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
                 new_taas_school = (taas_school or '').upper() if new_type == 'TAAS' else ''
 
                 logging.info(
-                    "new_course: [type:%s, company_name:%s, course_language:%s, taas_school:%s]",
+                    "new_course: [customer_type:%s, company_name:%s, course_language:%s, taas_school:%s]",
                     new_type, new_company or '', new_lang or '', new_taas_school or ''
                 )
                 logging.info("new_student_data: [is_2on1:%s]", is_2on1)
