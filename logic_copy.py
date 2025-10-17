@@ -121,7 +121,8 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
     # Normalize to uppercase for DB storage; use None for empty strings
     type_db = (type_value or '').upper() or None
     company_db = (company_name or '').upper() or None
-    lang_db = (course_language or '').upper() or None
+    # Default to '-' if language not provided to satisfy NOT NULL constraints
+    lang_db = (course_language or '-').upper()
     taas_school_db = (taas_school or '').upper() or None
 
     set_parts = ["customer_type = %s", "company_name = %s"]
@@ -304,7 +305,8 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
             for row in rows:
                 new_type = (type_value or '').upper()
                 new_company = (company_name or '').upper()
-                new_lang = (course_language or '').upper()
+                # Mirror DB default: show '-' when language missing
+                new_lang = (course_language or '-').upper()
                 new_taas_school = (taas_school or '').upper() if new_type == 'TAAS' else ''
 
                 logging.info(
