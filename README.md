@@ -1,7 +1,7 @@
 Python B2B/TaaS Recovery
 
 Overview
-- Reads each path from `b2b_paths/b2b_paths.cleaned.csv` (or a provided file via `--input`).
+- Reads each path from `b2b_paths.cleaned.csv` (or a provided file via `--input`).
 - Extracts the filename (after the last `/` and after the last `___`).
 - Infers type from the path: contains `taas` OR any configured TAAS school keyword (see `taas_schools.py`) → `TAAS`; contains `B2B`/`Companies` → `B2B`; otherwise `B2C`.
 - Finds matches in `public.new_course` where `spreadsheet_name` equals that filename (exact match).
@@ -17,7 +17,7 @@ Notes
 - If a path does not imply `taas` or `b2b`, the `type` defaults to `B2C`.
 
 Requirements
-- Environment variable `DATABASE_PUBLIC_URL` must point to your PostgreSQL instance (Railway compatible).
+- Environment variable `DATABASE_PUBLIC_URL` must point to the PostgreSQL instance (Railway compatible).
 - For local dev, put it in `.env` and it will be auto‑loaded.
 - Python 3 with `psycopg2-binary` and `python-dotenv` (installed via `requirements.txt`).
 

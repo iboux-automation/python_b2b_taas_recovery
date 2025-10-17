@@ -16,6 +16,7 @@ TAAS_SCHOOLS = {
     "international travel advisor": "INTERNATIONAL TRAVEL ADVISOR",
     "academy aziendali": "ACADEMY AZIENDALI",
     "altissa": "ALTISSA",
+    "udima": "UDIMA",
 }
 
 
