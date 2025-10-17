@@ -40,7 +40,7 @@ def update_student_is_2on1(conn, student_id: Optional[int], is_2on1: bool, dry_r
     if student_id is None:
         return
     if dry_run:
-        logging.info(
+        logging.debug(
             f"[dry-run] Would update new_student_data id={student_id} set is_2on1=%r",
             is_2on1,
         )
@@ -77,8 +77,11 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
 
     set_sql = ", ".join(set_parts)
     if dry_run:
-        logging.info(
-            f"[dry-run] Would update new_course id={row_id} set {set_sql} with params=%r",
+        # Use logging parameter substitution and keep this at DEBUG to avoid clutter
+        logging.debug(
+            "[dry-run] Would update new_course id=%s set %s with params=%r",
+            row_id,
+            set_sql,
             params,
         )
         return
@@ -237,20 +240,27 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
         is_2on1 = ('2-1' in s)
 
         rows = find_new_course_by_spreadsheet_name(conn, filename)
-        if not rows:
-            logging.debug(f"No match in new_course for spreadsheet_name='{filename}'")
-        else:
+        if rows:
             total_matched_rows += len(rows)
+            # Print a concise, readable block per path
+            logging.info("* %s | Match", s)
             for row in rows:
+                new_type = (type_value or '').upper()
+                new_company = (company_name or '').upper()
+                new_lang = (course_language or '').upper()
+                new_taas_school = (taas_school or '').upper() if new_type == 'TAAS' else ''
+
+                logging.info(
+                    "new_course: [type:%s, company_name:%s, course_language:%s, taas_school:%s]",
+                    new_type, new_company or '', new_lang or '', new_taas_school or ''
+                )
+                logging.info("new_student_data: [is_2on1:%s]", is_2on1)
+
                 update_new_course(conn, row['id'], type_value, company_name, course_language, taas_school, dry_run=dry_run)
                 update_student_is_2on1(conn, row.get('student_id'), is_2on1, dry_run=dry_run)
                 total_updates += 1
-
-        if total_paths % PROGRESS_EVERY == 0:
-            logging.info(
-                "Progress: paths=%s, matched_rows=%s, updates=%s",
-                total_paths, total_matched_rows, total_updates,
-            )
+        else:
+            logging.info("* %s | No Match", s)
 
     if not dry_run:
         conn.commit()
