@@ -1,1 +1,1 @@
-worker: python -u run_build_joins.py --verbose
+worker: python -u cli.py --dry-run --verbose
