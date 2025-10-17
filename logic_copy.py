@@ -13,6 +13,68 @@ from taas_schools import detect_taas_school
 
 PROGRESS_EVERY = 100  # Log progress every N paths
 
+def _table_exists(conn, table: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema='public' AND table_name=%s
+            """,
+            (table,),
+        )
+        return cur.fetchone() is not None
+
+def _prune_new_course_duplicates(conn, rows, dry_run: bool = False):
+    """Delete zero-class duplicates when all matches share same student_id.
+
+    Rules:
+    - One match → do nothing.
+    - Multiple matches BUT different student_id → do nothing.
+    - Multiple matches AND same student_id:
+      * If some have classes (>0): delete all with 0 classes; keep the rest.
+      * If all have 0 classes: keep the first, delete the others.
+
+    Returns (kept_rows, messages, dup_count). Each message: "duplicate: delete course id=<id> | 0 classes".
+    """
+    messages = []
+    dup_count = 0
+    if len(rows) <= 1:
+        return rows, messages, dup_count
+    sids = {r.get('student_id') for r in rows}
+    if len(sids) != 1:
+        return rows, messages, dup_count
+    dup_count = len(rows) - 1
+    has_new_class = _table_exists(conn, 'new_class')
+    counts = {}
+    if has_new_class:
+        with conn.cursor() as cur:
+            for r in rows:
+                cid = r.get('id')
+                cur.execute("SELECT COUNT(*) FROM public.new_class WHERE course_id = %s", (cid,))
+                counts[cid] = cur.fetchone()[0]
+    else:
+        for r in rows:
+            counts[r.get('id')] = 0
+    zero = [r for r in rows if counts.get(r.get('id'), 0) == 0]
+    nonzero = [r for r in rows if counts.get(r.get('id'), 0) > 0]
+    to_delete = []
+    if nonzero:
+        to_delete = zero
+    else:
+        if len(zero) > 1:
+            to_delete = zero[1:]
+    kept_ids = {r.get('id') for r in rows} - {r.get('id') for r in to_delete}
+    kept_rows = [r for r in rows if r.get('id') in kept_ids]
+    for r in to_delete:
+        cid = r.get('id')
+        messages.append(f"duplicate: delete course id={cid} | 0 classes")
+        if dry_run:
+            continue
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM public.new_course WHERE id = %s", (cid,))
+        conn.commit()
+    return kept_rows, messages, dup_count
+
 def find_courses_by_spreadsheet_name(conn, spreadsheet_name: str) -> List[dict]:
     """Find rows in legacy course table by exact spreadsheet_name.
 
@@ -40,10 +102,6 @@ def update_student_is_2on1(conn, student_id: Optional[int], is_2on1: bool, dry_r
     if student_id is None:
         return
     if dry_run:
-        logging.debug(
-            f"[dry-run] Would update new_student_data id={student_id} set is_2on1=%r",
-            is_2on1,
-        )
         return
     with conn.cursor() as cur:
         cur.execute(
@@ -77,13 +135,6 @@ def update_new_course(conn, row_id: int, type_value: str, company_name: str, cou
 
     set_sql = ", ".join(set_parts)
     if dry_run:
-        # Use logging parameter substitution and keep this at DEBUG to avoid clutter
-        logging.debug(
-            "[dry-run] Would update new_course id=%s set %s with params=%r",
-            row_id,
-            set_sql,
-            params,
-        )
         return
     with conn.cursor() as cur:
         cur.execute(
@@ -241,9 +292,15 @@ def orchestrate(conn, input_path: str, dry_run: bool = False):
 
         rows = find_new_course_by_spreadsheet_name(conn, filename)
         if rows:
+            # Deduplicate by (spreadsheet_name, student_id): keep first per student
+            rows, dup_msgs, dup_count = _prune_new_course_duplicates(conn, rows, dry_run=dry_run)
             total_matched_rows += len(rows)
             # Print a concise, readable block per path
             logging.info("* %s | Match", s)
+            if dup_count > 0:
+                logging.info("duplicates: %s", dup_count)
+            for msg in dup_msgs:
+                logging.info(msg)
             for row in rows:
                 new_type = (type_value or '').upper()
                 new_company = (company_name or '').upper()

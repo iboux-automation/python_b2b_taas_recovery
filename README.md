@@ -16,6 +16,14 @@ Notes
 - No rows are inserted; only existing rows in `public.new_course` are updated if a filename match is found.
 - If a path does not imply `taas` or `b2b`, the `type` defaults to `B2C`.
 
+Duplicate Handling
+- When multiple `public.new_course` rows share the same `spreadsheet_name` and ALL share the same `student_id`:
+  - If some have related classes (>0), delete all duplicates that have 0 classes; keep those with classes.
+  - If all have 0 related classes, keep only one (the first), delete the rest.
+  - If only one course matches the `spreadsheet_name`, do nothing (even if it has 0 classes).
+  - If matches have different `student_id` values, do nothing.
+  - Log only deletions (same text in dry‑run and real): `duplicate: delete course id=<id> | 0 classes`.
+
 Requirements
 - Environment variable `DATABASE_PUBLIC_URL` must point to the PostgreSQL instance (Railway compatible).
 - For local dev, put it in `.env` and it will be auto‑loaded.
@@ -50,3 +58,13 @@ Input File
 - One path per line. Example line:
   `EX-STUDENTS1/Ex-Students - TaaS___ABA English Ex-Students___ABA English - NEW___Carla Sanches (ABA ENGLISH) GB 22917764`
 - Extracted filename → `Carla Sanches (ABA ENGLISH) GB 22917764`
+
+Log Format
+- On match:
+  - `* <pathname> | Match`
+  - `duplicates: <N>` when more than one course matches and all share the same `student_id`.
+  - optional duplicate deletion lines right after the pathname (only when a duplicate will be deleted under the rules above)
+  - `new_course: [type:<TYPE>, company_name:<COMPANY>, course_language:<LANG>, taas_school:<SCHOOL>]`
+  - `new_student_data: [is_2on1:<True|False>]`
+- On no match:
+  - `* <pathname> | No Match`

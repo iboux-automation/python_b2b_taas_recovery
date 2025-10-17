@@ -35,6 +35,8 @@ def main():
         args.dry_run,
         args.verbose,
     )
+    if args.dry_run:
+        logging.info("DRY RUN: no database writes will be performed")
 
     conn = get_conn()
     try:
